@@ -106,7 +106,8 @@ export async function POST(request: NextRequest) {
     const child = spawn('npm', ['run', 'dev', '--', '-p', port.toString()], {
       cwd: projectPath,
       shell: true,
-      detached: true,
+      detached: false,
+      windowsHide: true,
       stdio: ['ignore', 'pipe', 'pipe'],
     })
 
