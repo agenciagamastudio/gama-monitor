@@ -4,7 +4,7 @@
   "description": "Gama Monitor — Real-time project hub with Design System control",
   "private": true,
   "scripts": {
-    "dev": "next dev -p 3015",
+    "dev": "node start.js",
     "build": "next build",
     "start": "next start -p 3015",
     "lint": "next lint",
