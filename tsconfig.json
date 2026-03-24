@@ -33,7 +33,7 @@
       ]
     },
     "allowJs": true,
-    "incremental": true,
+    "incremental": false,
     "plugins": [
       {
         "name": "next"
@@ -43,11 +43,6 @@
   "include": [
     "src",
     ".next/types/**/*.ts"
-  ],
-  "references": [
-    {
-      "path": "./tsconfig.node.json"
-    }
   ],
   "exclude": [
     "node_modules"

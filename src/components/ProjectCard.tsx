@@ -6,13 +6,23 @@ import { ProjectCardHeader } from './ProjectCardHeader'
 import { ProjectCardInfo } from './ProjectCardInfo'
 import { ProjectCardPreview } from './ProjectCardPreview'
 import { ProjectCardActions } from './ProjectCardActions'
+import { ProjectLogs } from './ProjectLogs'
+import { ProjectMetrics } from './ProjectMetrics'
+import { ProjectNotes } from './ProjectNotes'
 
 interface ProjectCardProps {
   project: Project | null
-  onUpdateProjectStatus?: (projectId: string, status: 'online' | 'offline') => void
+  isFocused?: boolean
+  onToggleFocus?: () => void
+  onUpdateProjectStatus?: (projectId: string, status: 'online' | 'offline', updatedFields?: Partial<Project>) => void
 }
 
-export function ProjectCard({ project, onUpdateProjectStatus }: ProjectCardProps) {
+export function ProjectCard({
+  project,
+  isFocused,
+  onToggleFocus,
+  onUpdateProjectStatus,
+}: ProjectCardProps) {
   const [status, setStatus] = useState<'online' | 'offline'>(project?.status || 'offline')
   const [isLoading, setIsLoading] = useState(false)
   const [loadingMessage, setLoadingMessage] = useState('')
@@ -21,15 +31,33 @@ export function ProjectCard({ project, onUpdateProjectStatus }: ProjectCardProps
   useEffect(() => {
     if (!project) return
 
+    let previousStatus = status
+
     const checkHealth = async () => {
       try {
         await fetch(`http://localhost:${project.port}`, {
           method: 'HEAD',
           mode: 'no-cors',
         })
-        setStatus('online')
-        onUpdateProjectStatus?.(project.id, 'online')
+        const newStatus: 'online' | 'offline' = 'online'
+
+        // Detect offline → online transition (restart)
+        if (previousStatus === 'offline' && newStatus === 'online') {
+          const updatedProject: Partial<Project> = {
+            status: newStatus,
+            lastOnlineAt: Date.now(),
+            restartCount: (project.restartCount ?? 0) + 1,
+            totalRestarts: (project.totalRestarts ?? 0) + 1,
+          }
+          onUpdateProjectStatus?.(project.id, 'online', updatedProject)
+        } else {
+          onUpdateProjectStatus?.(project.id, 'online')
+        }
+
+        previousStatus = newStatus
+        setStatus(newStatus)
       } catch {
+        previousStatus = 'offline'
         setStatus('offline')
         onUpdateProjectStatus?.(project.id, 'offline')
       }
@@ -134,7 +162,11 @@ export function ProjectCard({ project, onUpdateProjectStatus }: ProjectCardProps
 
   return (
     <div className="space-y-6">
-      <ProjectCardHeader project={project} />
+      <ProjectCardHeader
+        project={project}
+        isFocused={isFocused}
+        onToggleFocus={onToggleFocus}
+      />
       <ProjectCardInfo project={project} />
       <ProjectCardPreview project={project} />
       <ProjectCardActions
@@ -144,6 +176,12 @@ export function ProjectCard({ project, onUpdateProjectStatus }: ProjectCardProps
         onStop={handleStopProject}
         isLoading={isLoading}
         loadingMessage={loadingMessage}
+      />
+      <ProjectMetrics project={project} />
+      <ProjectLogs port={project.port} isOnline={status === 'online'} />
+      <ProjectNotes
+        project={project}
+        onSave={(notes) => onUpdateProjectStatus?.(project.id, status, { ...project, notes })}
       />
     </div>
   )

@@ -12,6 +12,7 @@ import { Project } from '@/types/project'
 export default function Home() {
   const [projects, setProjects] = useState<Project[]>([])
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null)
+  const [focusedProjectId, setFocusedProjectId] = useState<string | null>(null)
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [currentDS, setCurrentDS] = useState('gama')
   const [mounted, setMounted] = useState(false)
@@ -62,12 +63,22 @@ export default function Home() {
     console.log(`Design System changed to: ${ds}`)
   }
 
-  const handleUpdateProjectStatus = (projectId: string, status: 'online' | 'offline') => {
+  const handleUpdateProjectStatus = (
+    projectId: string,
+    status: 'online' | 'offline',
+    updatedFields?: Partial<Project>
+  ) => {
     setProjects(
       projects.map((p) =>
-        p.id === projectId ? { ...p, status, lastChecked: Date.now() } : p
+        p.id === projectId
+          ? { ...p, status, lastChecked: Date.now(), ...updatedFields }
+          : p
       )
     )
+  }
+
+  const handleToggleFocus = (projectId: string) => {
+    setFocusedProjectId(focusedProjectId === projectId ? null : projectId)
   }
 
   if (!mounted) {
@@ -80,7 +91,9 @@ export default function Home() {
       <Sidebar
         projects={projects}
         selectedProjectId={selectedProjectId}
+        focusedProjectId={focusedProjectId}
         onSelectProject={setSelectedProjectId}
+        onToggleFocus={handleToggleFocus}
         onAddProject={() => setIsModalOpen(true)}
       />
 
@@ -102,6 +115,8 @@ export default function Home() {
           <div className="space-y-6">
             <ProjectCard
               project={selectedProject}
+              isFocused={focusedProjectId === selectedProject?.id}
+              onToggleFocus={selectedProject ? () => handleToggleFocus(selectedProject.id) : undefined}
               onUpdateProjectStatus={handleUpdateProjectStatus}
             />
             <PortManager projects={projects} />

@@ -2,9 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { spawn } from 'child_process'
 import { join } from 'path'
 import { readdirSync, statSync } from 'fs'
-
-// Store running processes in memory
-const processes = new Map<number, any>()
+import { register, appendLog, removeEntry } from '@/lib/process-registry'
 
 // Find package.json recursively in project folder
 function findProjectRoot(basePath: string): string | null {
@@ -86,13 +84,6 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    if (processes.has(port)) {
-      return NextResponse.json(
-        { error: 'Project already running on this port', success: false },
-        { status: 400 }
-      )
-    }
-
     // Build project path
     let projectPath = join(
       'C:',
@@ -119,30 +110,42 @@ export async function POST(request: NextRequest) {
       stdio: ['ignore', 'pipe', 'pipe'],
     })
 
-    // Capture stderr for debugging
-    let errorOutput = ''
-    if (child.stderr) {
-      child.stderr.on('data', (data) => {
-        errorOutput += data.toString()
+    // Register process in registry
+    register(port, child)
+
+    // Capture stdout for logs
+    if (child.stdout) {
+      child.stdout.on('data', (data) => {
+        const line = data.toString().trim()
+        if (line) {
+          appendLog(port, line)
+          console.log(`[${port}] ${line}`)
+        }
       })
     }
 
-    // Store process reference
-    processes.set(port, child)
+    // Capture stderr for logs and debugging
+    if (child.stderr) {
+      child.stderr.on('data', (data) => {
+        const line = data.toString().trim()
+        if (line) {
+          appendLog(port, `[ERROR] ${line}`)
+          console.error(`[${port}] ${line}`)
+        }
+      })
+    }
 
-    // Remove from map if process exits
+    // Remove from registry if process exits
     child.on('exit', (code) => {
       console.log(`Process on port ${port} exited with code ${code}`)
-      if (errorOutput && code !== 0) {
-        console.error(`Errors from process: ${errorOutput}`)
-      }
-      processes.delete(port)
+      removeEntry(port)
     })
 
     // Handle errors
     child.on('error', (err) => {
       console.error(`Error starting project on port ${port}:`, err)
-      processes.delete(port)
+      appendLog(port, `[FATAL] ${err.message}`)
+      removeEntry(port)
     })
 
     return NextResponse.json(
