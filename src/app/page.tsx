@@ -61,6 +61,14 @@ export default function Home() {
     console.log(`Design System changed to: ${ds}`)
   }
 
+  const handleUpdateProjectStatus = (projectId: string, status: 'online' | 'offline') => {
+    setProjects(
+      projects.map((p) =>
+        p.id === projectId ? { ...p, status, lastChecked: Date.now() } : p
+      )
+    )
+  }
+
   if (!mounted) {
     return <div className="bg-gama-dark h-screen" />
   }
@@ -90,7 +98,10 @@ export default function Home() {
 
         {/* Content Area */}
         <div className="p-8">
-          <ProjectCard project={selectedProject} />
+          <ProjectCard
+            project={selectedProject}
+            onUpdateProjectStatus={handleUpdateProjectStatus}
+          />
         </div>
       </main>
 
