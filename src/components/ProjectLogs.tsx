@@ -37,8 +37,8 @@ export function ProjectLogs({ port, isOnline }: ProjectLogsProps) {
 
   // Auto-scroll to bottom
   useEffect(() => {
-    if (autoScroll) {
-      logsEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+    if (autoScroll && containerRef.current) {
+      containerRef.current.scrollTop = containerRef.current.scrollHeight
     }
   }, [logs, autoScroll])
 
