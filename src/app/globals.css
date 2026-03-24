@@ -1,3 +1,4 @@
+@import './tokens.css';
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -9,14 +10,14 @@
 }
 
 html {
-  font-family: 'Poppins', sans-serif;
-  background-color: #161616;
-  color: #ffffff;
+  font-family: var(--font-sans);
+  background-color: var(--color-dark);
+  color: var(--color-text);
 }
 
 body {
-  background-color: #161616;
-  color: #ffffff;
+  background-color: var(--color-dark);
+  color: var(--color-text);
 }
 
 ::-webkit-scrollbar {
@@ -25,14 +26,14 @@ body {
 }
 
 ::-webkit-scrollbar-track {
-  background: #272727;
+  background: var(--color-surface);
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #88CE11;
+  background: var(--color-primary);
   border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #a8d515;
+  background: var(--color-primary-hover);
 }

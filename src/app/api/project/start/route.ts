@@ -40,7 +40,7 @@ function findProjectRoot(basePath: string): string | null {
 // Check if port is already in use
 async function isPortInUse(port: number): Promise<boolean> {
   try {
-    const response = await fetch(`http://localhost:${port}`, {
+    await fetch(`http://localhost:${port}`, {
       method: 'HEAD',
       mode: 'no-cors',
     })

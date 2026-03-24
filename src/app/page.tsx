@@ -5,6 +5,7 @@ import { Sidebar } from '@/components/Sidebar'
 import { ProjectCard } from '@/components/ProjectCard'
 import { AddProjectModal } from '@/components/AddProjectModal'
 import { DesignSystemSelector } from '@/components/DesignSystemSelector'
+import { PortManager } from '@/components/PortManager'
 import { storage } from '@/lib/storage'
 import { Project } from '@/types/project'
 
@@ -98,10 +99,13 @@ export default function Home() {
 
         {/* Content Area */}
         <div className="p-8">
-          <ProjectCard
-            project={selectedProject}
-            onUpdateProjectStatus={handleUpdateProjectStatus}
-          />
+          <div className="space-y-6">
+            <ProjectCard
+              project={selectedProject}
+              onUpdateProjectStatus={handleUpdateProjectStatus}
+            />
+            <PortManager projects={projects} />
+          </div>
         </div>
       </main>
 

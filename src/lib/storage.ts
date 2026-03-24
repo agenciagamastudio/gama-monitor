@@ -45,4 +45,24 @@ export const storage = {
     if (typeof window === 'undefined') return
     localStorage.setItem(DESIGN_SYSTEM_KEY, ds)
   },
+
+  getOccupiedPorts: (): number[] => {
+    const projects = storage.getProjects()
+    return projects.map((p) => p.port).sort((a, b) => a - b)
+  },
+
+  getNextAvailablePort: (): number => {
+    const occupiedPorts = storage.getOccupiedPorts()
+    const basePort = 3000
+    const maxPort = 65535
+
+    // Find first available port starting from basePort
+    for (let port = basePort; port <= maxPort; port++) {
+      if (!occupiedPorts.includes(port)) {
+        return port
+      }
+    }
+
+    return basePort
+  },
 }
