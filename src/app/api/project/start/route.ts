@@ -4,34 +4,22 @@ import { join } from 'path'
 import { readdirSync, statSync, existsSync } from 'fs'
 import { register, appendLog, removeEntry } from '@/lib/process-registry'
 
-// Find package.json recursively in project folder
-function findProjectRoot(basePath: string): string | null {
+// Detect project type by checking root folder only
+function detectProjectType(basePath: string): 'python' | 'nodejs' | 'unknown' {
   try {
-    const items = readdirSync(basePath)
-
-    // Check if package.json exists in current folder
-    if (items.includes('package.json')) {
-      return basePath
+    // Priority 1: Check for main.py in root (Python projects)
+    if (existsSync(join(basePath, 'main.py'))) {
+      return 'python'
     }
 
-    // Search one level deeper for common patterns
-    for (const item of items) {
-      const itemPath = join(basePath, item)
-      try {
-        if (statSync(itemPath).isDirectory()) {
-          const subItems = readdirSync(itemPath)
-          if (subItems.includes('package.json')) {
-            return itemPath
-          }
-        }
-      } catch {
-        // Skip if can't read directory
-      }
+    // Priority 2: Check for package.json in root (Node.js projects)
+    if (existsSync(join(basePath, 'package.json'))) {
+      return 'nodejs'
     }
 
-    return basePath // Return base path if no package.json found
+    return 'unknown'
   } catch {
-    return basePath
+    return 'unknown'
   }
 }
 
@@ -85,7 +73,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Build project path
-    let projectPath = join(
+    const projectPath = join(
       'C:',
       'Users',
       'Usuario',
@@ -94,34 +82,32 @@ export async function POST(request: NextRequest) {
       path
     )
 
-    // Find the correct folder with package.json
-    const actualProjectRoot = findProjectRoot(projectPath)
-    if (actualProjectRoot) {
-      projectPath = actualProjectRoot
-    }
+    console.log(`\n[DEBUG] Starting project at: ${projectPath}`)
+    console.log(`[DEBUG] Port: ${port}`)
 
-    console.log(`Starting project at: ${projectPath} on port ${port}`)
-
-    // Auto-detect project type
-    const mainPyExists = existsSync(join(projectPath, 'main.py'))
-    const packageJsonExists = existsSync(join(projectPath, 'package.json'))
+    // Auto-detect project type (root folder only)
+    const projectType = detectProjectType(projectPath)
+    console.log(`[DEBUG] Detected project type: ${projectType}`)
+    console.log(`[DEBUG] main.py exists: ${existsSync(join(projectPath, 'main.py'))}`)
+    console.log(`[DEBUG] package.json exists: ${existsSync(join(projectPath, 'package.json'))}`)
 
     let command: string
     let args: string[]
 
-    if (mainPyExists) {
-      // Python project
+    if (projectType === 'python') {
+      // Python project (Priority 1)
       command = 'python'
       args = [join(projectPath, 'main.py'), '--mode', 'listen']
-      console.log(`Detected Python project, using: ${command} ${args.join(' ')}`)
-    } else if (packageJsonExists) {
-      // Node.js project
+      console.log(`[DEBUG] ✅ Using Python: ${command} main.py --mode listen`)
+    } else if (projectType === 'nodejs') {
+      // Node.js project (Priority 2)
       command = 'npm'
       args = ['run', 'dev', '--', '-p', port.toString()]
-      console.log(`Detected Node.js project, using: ${command} ${args.join(' ')}`)
+      console.log(`[DEBUG] ✅ Using Node.js: ${command} run dev -p ${port}`)
     } else {
+      console.log(`[DEBUG] ❌ Project type unknown`)
       return NextResponse.json(
-        { error: 'Project type not detected (no main.py or package.json found)' },
+        { error: 'Project type not detected (no main.py or package.json found in project root)' },
         { status: 400 }
       )
     }
