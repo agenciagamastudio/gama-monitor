@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
+import { Copy, Check } from 'lucide-react'
 
 interface ProjectLogsProps {
   port: number
@@ -13,6 +14,7 @@ export function ProjectLogs({ port, isOnline }: ProjectLogsProps) {
   const [logs, setLogs] = useState<string[]>([])
   const [filter, setFilter] = useState<FilterType>('ALL')
   const [autoScroll, setAutoScroll] = useState(true)
+  const [isCopied, setIsCopied] = useState(false)
   const logsEndRef = useRef<HTMLDivElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
 
@@ -54,6 +56,17 @@ export function ProjectLogs({ port, isOnline }: ProjectLogsProps) {
     setLogs([])
   }
 
+  const handleCopy = async () => {
+    const textToCopy = filteredLogs.join('\n')
+    try {
+      await navigator.clipboard.writeText(textToCopy)
+      setIsCopied(true)
+      setTimeout(() => setIsCopied(false), 2000)
+    } catch (error) {
+      console.error('Failed to copy logs:', error)
+    }
+  }
+
   const handleScroll = () => {
     if (containerRef.current) {
       const { scrollTop, scrollHeight, clientHeight } = containerRef.current
@@ -71,6 +84,24 @@ export function ProjectLogs({ port, isOnline }: ProjectLogsProps) {
           <span className={`w-2 h-2 rounded-full flex-shrink-0 ${isOnline ? 'bg-gama-success animate-pulse' : 'bg-gama-error'}`} />
         </div>
         <div className="flex items-center gap-1">
+          <button
+            onClick={handleCopy}
+            disabled={logs.length === 0}
+            className="px-2 py-1 text-xs bg-gama-surface-accent text-gama-text hover:bg-gama-primary/20 rounded transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
+            title="Copiar logs"
+          >
+            {isCopied ? (
+              <>
+                <Check size={14} />
+                <span>Copiado!</span>
+              </>
+            ) : (
+              <>
+                <Copy size={14} />
+                <span>Copiar</span>
+              </>
+            )}
+          </button>
           <button
             onClick={handleClear}
             className="px-2 py-1 text-xs bg-gama-surface-accent text-gama-text hover:bg-gama-primary/20 rounded transition-all"
