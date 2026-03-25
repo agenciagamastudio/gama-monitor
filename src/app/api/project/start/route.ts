@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { spawn } from 'child_process'
 import { join } from 'path'
-import { readdirSync, statSync } from 'fs'
+import { readdirSync, statSync, existsSync } from 'fs'
 import { register, appendLog, removeEntry } from '@/lib/process-registry'
 
 // Find package.json recursively in project folder
@@ -102,8 +102,32 @@ export async function POST(request: NextRequest) {
 
     console.log(`Starting project at: ${projectPath} on port ${port}`)
 
-    // Spawn npm run dev with port argument
-    const child = spawn('npm', ['run', 'dev', '--', '-p', port.toString()], {
+    // Auto-detect project type
+    const mainPyExists = existsSync(join(projectPath, 'main.py'))
+    const packageJsonExists = existsSync(join(projectPath, 'package.json'))
+
+    let command: string
+    let args: string[]
+
+    if (mainPyExists) {
+      // Python project
+      command = 'python'
+      args = [join(projectPath, 'main.py'), '--mode', 'listen']
+      console.log(`Detected Python project, using: ${command} ${args.join(' ')}`)
+    } else if (packageJsonExists) {
+      // Node.js project
+      command = 'npm'
+      args = ['run', 'dev', '--', '-p', port.toString()]
+      console.log(`Detected Node.js project, using: ${command} ${args.join(' ')}`)
+    } else {
+      return NextResponse.json(
+        { error: 'Project type not detected (no main.py or package.json found)' },
+        { status: 400 }
+      )
+    }
+
+    // Spawn process with detected command
+    const child = spawn(command, args, {
       cwd: projectPath,
       shell: true,
       detached: false,
