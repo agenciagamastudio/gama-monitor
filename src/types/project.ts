@@ -4,6 +4,9 @@ export interface Project {
   path: string
   port: number
   status: 'online' | 'offline'
+  // Multi-process support
+  frontendPath?: string // ex: "GAMA_JARVIS/ui"
+  frontendPort?: number // ex: 3014
   lastChecked?: number
   // Metrics
   lastOnlineAt?: number // timestamp quando ficou online

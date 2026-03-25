@@ -38,11 +38,26 @@ async function isPortInUse(port: number): Promise<boolean> {
 
 export async function POST(request: NextRequest) {
   try {
-    const { projectName, port, path } = await request.json()
+    const { projectName, port, path, frontendPath, frontendPort } = await request.json()
 
     if (!projectName || !port || !path) {
       return NextResponse.json(
         { error: 'Missing projectName, port, or path' },
+        { status: 400 }
+      )
+    }
+
+    // If frontend is specified, validate it
+    if (frontendPath && !frontendPort) {
+      return NextResponse.json(
+        { error: 'frontendPort must be provided when frontendPath is specified' },
+        { status: 400 }
+      )
+    }
+
+    if (frontendPort && !frontendPath) {
+      return NextResponse.json(
+        { error: 'frontendPath must be provided when frontendPort is specified' },
         { status: 400 }
       )
     }
@@ -55,12 +70,38 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // Validate frontend port if specified
+    if (frontendPort && (!Number.isInteger(frontendPort) || frontendPort < 1 || frontendPort > 65535)) {
+      return NextResponse.json(
+        { error: 'Invalid frontend port number (must be 1-65535)' },
+        { status: 400 }
+      )
+    }
+
+    // Validate frontend port is different from backend port
+    if (frontendPort && frontendPort === port) {
+      return NextResponse.json(
+        { error: 'Frontend port must be different from backend port' },
+        { status: 400 }
+      )
+    }
+
     // Validate path (prevent path traversal)
     if (typeof path !== 'string' || path.includes('..') || path.startsWith('/')) {
       return NextResponse.json(
         { error: 'Invalid path' },
         { status: 400 }
       )
+    }
+
+    // Validate frontend path if specified
+    if (frontendPath) {
+      if (typeof frontendPath !== 'string' || frontendPath.includes('..') || frontendPath.startsWith('/')) {
+        return NextResponse.json(
+          { error: 'Invalid frontend path' },
+          { status: 400 }
+        )
+      }
     }
 
     // Check if already running
@@ -70,6 +111,17 @@ export async function POST(request: NextRequest) {
         { error: `Port ${port} is already in use`, success: false },
         { status: 400 }
       )
+    }
+
+    // Check frontend port if specified
+    if (frontendPort) {
+      const frontendPortInUse = await isPortInUse(frontendPort)
+      if (frontendPortInUse) {
+        return NextResponse.json(
+          { error: `Frontend port ${frontendPort} is already in use`, success: false },
+          { status: 400 }
+        )
+      }
     }
 
     // Build project path
@@ -82,8 +134,33 @@ export async function POST(request: NextRequest) {
       path
     )
 
+    // Build frontend path if specified
+    let frontendProjectPath: string | null = null
+    if (frontendPath) {
+      frontendProjectPath = join(
+        'C:',
+        'Users',
+        'Usuario',
+        'Desktop',
+        'O_GRANDE_PROJETO',
+        frontendPath
+      )
+
+      // Verify frontend path exists
+      if (!existsSync(frontendProjectPath)) {
+        return NextResponse.json(
+          { error: `Frontend path does not exist: ${frontendPath}` },
+          { status: 400 }
+        )
+      }
+    }
+
     console.log(`\n[DEBUG] Starting project at: ${projectPath}`)
     console.log(`[DEBUG] Port: ${port}`)
+    if (frontendProjectPath) {
+      console.log(`[DEBUG] Frontend path: ${frontendProjectPath}`)
+      console.log(`[DEBUG] Frontend port: ${frontendPort}`)
+    }
 
     // Auto-detect project type (root folder only)
     const projectType = detectProjectType(projectPath)
@@ -159,11 +236,69 @@ export async function POST(request: NextRequest) {
       removeEntry(port)
     })
 
+    // Spawn frontend process if specified
+    let frontendPid: number | null = null
+    if (frontendProjectPath && frontendPort) {
+      console.log(`\n[DEBUG] Starting frontend at: ${frontendProjectPath}`)
+
+      const frontendChild = spawn('npm', ['run', 'dev', '--', '-p', frontendPort.toString()], {
+        cwd: frontendProjectPath,
+        shell: true,
+        detached: false,
+        windowsHide: true,
+        stdio: ['ignore', 'pipe', 'pipe'],
+      })
+
+      // Register frontend process in registry (use frontend port as key)
+      register(frontendPort, frontendChild)
+      frontendPid = frontendChild.pid || null
+
+      console.log(`[DEBUG] ✅ Frontend process spawned with PID: ${frontendPid}`)
+
+      // Capture stdout for logs
+      if (frontendChild.stdout) {
+        frontendChild.stdout.on('data', (data) => {
+          const line = data.toString().trim()
+          if (line) {
+            appendLog(frontendPort, line)
+            console.log(`[${frontendPort}] ${line}`)
+          }
+        })
+      }
+
+      // Capture stderr for logs and debugging
+      if (frontendChild.stderr) {
+        frontendChild.stderr.on('data', (data) => {
+          const line = data.toString().trim()
+          if (line) {
+            appendLog(frontendPort, `[ERROR] ${line}`)
+            console.error(`[${frontendPort}] ${line}`)
+          }
+        })
+      }
+
+      // Remove from registry if process exits
+      frontendChild.on('exit', (code) => {
+        console.log(`Frontend process on port ${frontendPort} exited with code ${code}`)
+        removeEntry(frontendPort)
+      })
+
+      // Handle errors
+      frontendChild.on('error', (err) => {
+        console.error(`Error starting frontend on port ${frontendPort}:`, err)
+        appendLog(frontendPort, `[FATAL] ${err.message}`)
+        removeEntry(frontendPort)
+      })
+    }
+
     return NextResponse.json(
       {
         success: true,
-        message: `Project starting on port ${port}...`,
+        message: frontendPort
+          ? `Project starting on port ${port}, frontend on port ${frontendPort}...`
+          : `Project starting on port ${port}...`,
         pid: child.pid,
+        frontendPid: frontendPid,
       },
       { status: 200 }
     )

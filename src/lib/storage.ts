@@ -6,7 +6,7 @@ const DESIGN_SYSTEM_KEY = 'gama-monitor-ds'
 
 export const defaultProjects: Project[] = [
   { id: '1', name: 'DESIGN SYSTEM', path: 'GAMA_DESIGN_SYSTEM/gama-ds-platform', port: 3000, status: 'offline' },
-  { id: '2', name: 'JARVIS', path: 'GAMA_JARVIS', port: 3014, status: 'offline' },
+  { id: '2', name: 'JARVIS', path: 'GAMA_JARVIS', port: 3018, frontendPath: 'GAMA_JARVIS/ui', frontendPort: 3014, status: 'offline' },
   { id: '3', name: 'NORT', path: 'GAMA_NORT', port: 3016, status: 'offline' },
   { id: '4', name: 'FINANCEIRO', path: 'GAMA_FINANCEIRO/gama-financeiro-prime', port: 3012, status: 'offline' },
   { id: '5', name: 'CALCULADORA', path: 'GAMA_CALCULADORA/gama-calculadora-app', port: 3010, status: 'offline' },

@@ -35,10 +35,20 @@ export function ProjectCard({
 
     const checkHealth = async () => {
       try {
+        // Check backend port
         await fetch(`http://localhost:${project.port}`, {
           method: 'HEAD',
           mode: 'no-cors',
         })
+
+        // If multi-process, also check frontend port
+        if (project.frontendPort) {
+          await fetch(`http://localhost:${project.frontendPort}`, {
+            method: 'HEAD',
+            mode: 'no-cors',
+          })
+        }
+
         const newStatus: 'online' | 'offline' = 'online'
 
         // Detect offline → online transition (restart)
@@ -87,14 +97,22 @@ export function ProjectCard({
     setLoadingMessage('Iniciando projeto...')
 
     try {
+      const startPayload: any = {
+        projectName: project.name,
+        port: project.port,
+        path: project.path,
+      }
+
+      // Add frontend info if available (multi-process projects)
+      if (project.frontendPath && project.frontendPort) {
+        startPayload.frontendPath = project.frontendPath
+        startPayload.frontendPort = project.frontendPort
+      }
+
       const response = await fetch('/api/project/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          projectName: project.name,
-          port: project.port,
-          path: project.path,
-        }),
+        body: JSON.stringify(startPayload),
       })
 
       const data = await response.json()
@@ -127,10 +145,17 @@ export function ProjectCard({
     setLoadingMessage('Parando projeto...')
 
     try {
+      const stopPayload: any = { port: project.port }
+
+      // Include frontend port if available
+      if (project.frontendPort) {
+        stopPayload.frontendPort = project.frontendPort
+      }
+
       const response = await fetch('/api/project/stop', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ port: project.port }),
+        body: JSON.stringify(stopPayload),
       })
 
       const data = await response.json()

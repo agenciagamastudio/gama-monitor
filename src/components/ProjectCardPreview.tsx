@@ -13,7 +13,9 @@ type ViewportSize = 'mobile' | 'tablet' | 'desktop'
 export function ProjectCardPreview({ project }: ProjectCardPreviewProps) {
   const [viewport, setViewport] = useState<ViewportSize>('desktop')
   const [refreshKey, setRefreshKey] = useState(0)
-  const projectUrl = `http://localhost:${project.port}`
+  // Use frontend port if available (for multi-process projects), otherwise use backend port
+  const previewPort = project.frontendPort || project.port
+  const projectUrl = `http://localhost:${previewPort}`
 
   const getViewportWidth = () => {
     switch (viewport) {
