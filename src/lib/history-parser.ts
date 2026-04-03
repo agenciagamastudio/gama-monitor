@@ -1,5 +1,119 @@
 import { HistorySession, ExplorerNode, HistoryStats } from '@/types/history'
 
+/**
+ * History Parser - Session-based grouping utility
+ * Parses raw history events and groups them by sessionId (terminal)
+ */
+
+export interface HistoryEvent {
+  display: string
+  pastedContents: Record<string, unknown>
+  timestamp: number
+  project: string
+  sessionId: string
+}
+
+export interface SessionMetadata {
+  count: number
+  firstTime: number
+  lastTime: number
+  duration: number
+  lastDisplay: string
+  project: string
+}
+
+export interface GroupedSession extends SessionMetadata {
+  events: HistoryEvent[]
+}
+
+export interface SessionGroup {
+  [sessionId: string]: GroupedSession
+}
+
+/**
+ * Parse raw history events and group by sessionId
+ * Accepts both HistoryEvent (raw) and HistorySession (parsed) formats
+ * @param events - Array of history events from history.jsonl or HistorySession[]
+ * @returns Grouped sessions object with metadata
+ */
+export function parseHistoryBySession(events: (HistoryEvent | HistorySession | any)[]): SessionGroup {
+  const grouped: SessionGroup = {}
+
+  for (const event of events) {
+    // Support both raw events (with sessionId) and HistorySession (with id)
+    const sessionId = (event as any).sessionId || (event as any).id || 'unknown'
+    if (!sessionId) continue
+
+    if (!grouped[sessionId]) {
+      grouped[sessionId] = {
+        events: [] as HistoryEvent[],
+        count: 0,
+        firstTime: (event as any).timestamp,
+        lastTime: (event as any).timestamp,
+        lastDisplay: (event as any).display || (event as any).content || '',
+        project: (event as any).project || 'Unknown',
+        duration: 0
+      }
+    }
+
+    // Convert to HistoryEvent format for storage
+    const historyEvent: HistoryEvent = {
+      display: (event as any).display || (event as any).content || '',
+      pastedContents: (event as any).pastedContents || {},
+      timestamp: (event as any).timestamp,
+      project: (event as any).project || 'Unknown',
+      sessionId,
+    }
+
+    grouped[sessionId].events.push(historyEvent)
+    grouped[sessionId].count++
+    grouped[sessionId].lastTime = (event as any).timestamp
+    grouped[sessionId].lastDisplay = (event as any).display || (event as any).content || ''
+    grouped[sessionId].duration = grouped[sessionId].lastTime - grouped[sessionId].firstTime
+  }
+
+  return grouped
+}
+
+/**
+ * Convert grouped sessions to sorted array (most recent first)
+ * @param grouped - Grouped sessions object
+ * @returns Array of grouped sessions sorted by lastTime descending
+ */
+export function sortSessionsByRecent(grouped: SessionGroup): GroupedSession[] {
+  return Object.values(grouped).sort((a, b) => b.lastTime - a.lastTime)
+}
+
+/**
+ * Format duration in milliseconds to human-readable string
+ * @param ms - Duration in milliseconds
+ * @returns Formatted duration string (e.g., "4 hours 5 minutes")
+ */
+export function formatDuration(ms: number): string {
+  if (ms < 0) return '0 minutes'
+
+  const totalSeconds = Math.floor(ms / 1000)
+  const totalMinutes = Math.floor(totalSeconds / 60)
+  const totalHours = Math.floor(totalMinutes / 60)
+  const days = Math.floor(totalHours / 24)
+
+  const hours = totalHours % 24
+  const minutes = totalMinutes % 60
+
+  const parts: string[] = []
+
+  if (days > 0) parts.push(`${days} day${days !== 1 ? 's' : ''}`)
+  if (hours > 0) parts.push(`${hours} hour${hours !== 1 ? 's' : ''}`)
+  if (minutes > 0) parts.push(`${minutes} minute${minutes !== 1 ? 's' : ''}`)
+
+  if (parts.length === 0) return '0 minutes'
+  if (parts.length === 1) return parts[0]
+
+  return parts.slice(0, -1).join(', ') + ' ' + parts[parts.length - 1]
+}
+
+// ===== Original history parser functions (preserved) =====
+
 export async function parseHistoryJsonl(content: string): Promise<HistorySession[]> {
   const lines = content.trim().split('\n')
   const sessions: HistorySession[] = []
