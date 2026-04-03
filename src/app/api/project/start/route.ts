@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { spawn } from 'child_process'
-import { join } from 'path'
-import { readdirSync, statSync, existsSync } from 'fs'
+import { join, dirname } from 'path'
+import { existsSync, copyFileSync } from 'fs'
+import { execSync } from 'child_process'
 import { register, appendLog, removeEntry } from '@/lib/process-registry'
 
 // Detect project type by checking root folder only
@@ -33,6 +34,137 @@ async function isPortInUse(port: number): Promise<boolean> {
     return true
   } catch {
     return false
+  }
+}
+
+// Setup Node.js project (dependencies, env, build)
+async function setupNodeProject(
+  projectPath: string
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    // 1a. Check if monorepo and install root first
+    const parentDir = dirname(projectPath)
+    const isMonorepo = existsSync(join(parentDir, 'package.json'))
+
+    if (isMonorepo) {
+      console.log(`[SETUP] Monorepo detectado. Instalando dependências na raiz...`)
+      try {
+        execSync('npm install', {
+          cwd: parentDir,
+          stdio: 'pipe',
+          timeout: 120000,
+        })
+        console.log(`[SETUP] ✓ Root dependencies instaladas`)
+      } catch (e) {
+        console.error(`[SETUP] ⚠ npm install na raiz falhou (continuando):`, String(e).slice(0, 100))
+      }
+    }
+
+    // 1b. Install dependencies in project folder
+    console.log(`[SETUP] Instalando dependências em ${projectPath.split('/').pop()}...`)
+    try {
+      execSync('npm install', {
+        cwd: projectPath,
+        stdio: 'pipe',
+        timeout: 120000,
+      })
+      console.log(`[SETUP] ✓ Dependências instaladas`)
+    } catch (e) {
+      return {
+        success: false,
+        error: `npm install falhou: ${String(e).slice(0, 150)}`,
+      }
+    }
+
+    // 2. Auto-copy .env.example → .env if not exists
+    const envPath = join(projectPath, '.env')
+    const envExamplePath = join(projectPath, '.env.example')
+
+    if (existsSync(envExamplePath) && !existsSync(envPath)) {
+      console.log(`[SETUP] Copiando .env.example → .env...`)
+      try {
+        copyFileSync(envExamplePath, envPath)
+        console.log(`[SETUP] ✓ .env criado`)
+      } catch (e) {
+        console.error(`[SETUP] ⚠ Erro ao copiar .env:`, String(e).slice(0, 100))
+      }
+    }
+
+    // 3. Run npm build if Next.js detected
+    const hasNextConfig =
+      existsSync(join(projectPath, 'next.config.js')) ||
+      existsSync(join(projectPath, 'next.config.ts'))
+
+    if (hasNextConfig) {
+      console.log(`[SETUP] Next.js detectado. Compilando build...`)
+      try {
+        execSync('npm run build', {
+          cwd: projectPath,
+          stdio: 'pipe',
+          timeout: 300000, // 5 min
+        })
+        console.log(`[SETUP] ✓ Build concluído`)
+      } catch (e) {
+        console.warn(
+          `[SETUP] ⚠ npm build falhou (dev mode pode funcionar):`,
+          String(e).slice(0, 100)
+        )
+        // Build failure is NOT fatal for dev mode
+      }
+    }
+
+    return { success: true }
+  } catch (error) {
+    return {
+      success: false,
+      error: `Setup falhou: ${String(error).slice(0, 150)}`,
+    }
+  }
+}
+
+// Setup Python project (dependencies, env)
+async function setupPythonProject(projectPath: string): Promise<{ success: boolean; error?: string }> {
+  try {
+    // 1. pip install if requirements.txt exists
+    const reqPath = join(projectPath, 'requirements.txt')
+
+    if (existsSync(reqPath)) {
+      console.log(`[SETUP] Instalando dependências Python...`)
+      try {
+        execSync('pip install -r requirements.txt', {
+          cwd: projectPath,
+          stdio: 'pipe',
+          timeout: 120000,
+        })
+        console.log(`[SETUP] ✓ Dependências Python instaladas`)
+      } catch (e) {
+        return {
+          success: false,
+          error: `pip install falhou: ${String(e).slice(0, 150)}`,
+        }
+      }
+    }
+
+    // 2. Auto-copy .env.example → .env if not exists
+    const envPath = join(projectPath, '.env')
+    const envExamplePath = join(projectPath, '.env.example')
+
+    if (existsSync(envExamplePath) && !existsSync(envPath)) {
+      console.log(`[SETUP] Copiando .env.example → .env...`)
+      try {
+        copyFileSync(envExamplePath, envPath)
+        console.log(`[SETUP] ✓ .env criado`)
+      } catch (e) {
+        console.error(`[SETUP] ⚠ Erro ao copiar .env:`, String(e).slice(0, 100))
+      }
+    }
+
+    return { success: true }
+  } catch (error) {
+    return {
+      success: false,
+      error: `Setup Python falhou: ${String(error).slice(0, 150)}`,
+    }
   }
 }
 
@@ -155,36 +287,60 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    console.log(`\n[DEBUG] Starting project at: ${projectPath}`)
+    console.log(`\n[DEBUG] === PROJECT START REQUEST ===`)
+    console.log(`[DEBUG] Project: ${projectName}`)
     console.log(`[DEBUG] Port: ${port}`)
-    if (frontendProjectPath) {
-      console.log(`[DEBUG] Frontend path: ${frontendProjectPath}`)
-      console.log(`[DEBUG] Frontend port: ${frontendPort}`)
-    }
+    console.log(`[DEBUG] Path: ${projectPath}`)
 
     // Auto-detect project type (root folder only)
     const projectType = detectProjectType(projectPath)
     console.log(`[DEBUG] Detected project type: ${projectType}`)
-    console.log(`[DEBUG] main.py exists: ${existsSync(join(projectPath, 'main.py'))}`)
-    console.log(`[DEBUG] package.json exists: ${existsSync(join(projectPath, 'package.json'))}`)
+
+    if (projectType === 'unknown') {
+      return NextResponse.json(
+        { error: 'Project type not detected (no main.py or package.json found in project root)' },
+        { status: 400 }
+      )
+    }
+
+    // ===== PRÉ-FLIGHT SETUP (NEW) =====
+    console.log(`\n[DEBUG] === PRÉ-FLIGHT SETUP ===`)
+
+    let setupResult
+    if (projectType === 'nodejs') {
+      setupResult = await setupNodeProject(projectPath)
+      if (!setupResult.success) {
+        return NextResponse.json(
+          { error: `Pré-flight setup falhou: ${setupResult.error}`, success: false },
+          { status: 400 }
+        )
+      }
+    } else if (projectType === 'python') {
+      setupResult = await setupPythonProject(projectPath)
+      if (!setupResult.success) {
+        return NextResponse.json(
+          { error: `Pré-flight setup falhou: ${setupResult.error}`, success: false },
+          { status: 400 }
+        )
+      }
+    }
+
+    console.log(`[DEBUG] === PRÉ-FLIGHT COMPLETE ===\n`)
 
     let command: string
     let args: string[]
 
     if (projectType === 'python') {
-      // Python project (Priority 1)
       command = 'python'
       args = [join(projectPath, 'main.py'), '--mode', 'listen']
-      console.log(`[DEBUG] ✅ Using Python: ${command} main.py --mode listen`)
+      console.log(`[DEBUG] Rodando: ${command} main.py --mode listen`)
     } else if (projectType === 'nodejs') {
-      // Node.js project (Priority 2)
       command = 'npm'
       args = ['run', 'dev', '--', '-p', port.toString()]
-      console.log(`[DEBUG] ✅ Using Node.js: ${command} run dev -p ${port}`)
+      console.log(`[DEBUG] Rodando: ${command} run dev -p ${port}`)
     } else {
-      console.log(`[DEBUG] ❌ Project type unknown`)
       return NextResponse.json(
-        { error: 'Project type not detected (no main.py or package.json found in project root)' },
+        { error: `Unknown project type: ${projectType}`, success: false },
         { status: 400 }
       )
     }
@@ -239,7 +395,18 @@ export async function POST(request: NextRequest) {
     // Spawn frontend process if specified
     let frontendPid: number | null = null
     if (frontendProjectPath && frontendPort) {
-      console.log(`\n[DEBUG] Starting frontend at: ${frontendProjectPath}`)
+      console.log(`\n[DEBUG] === FRONTEND PRÉ-FLIGHT SETUP ===`)
+
+      // Setup frontend
+      const frontendSetupResult = await setupNodeProject(frontendProjectPath)
+      if (!frontendSetupResult.success) {
+        return NextResponse.json(
+          { error: `Frontend setup falhou: ${frontendSetupResult.error}`, success: false },
+          { status: 400 }
+        )
+      }
+
+      console.log(`[DEBUG] === FRONTEND SETUP COMPLETE ===\n`)
 
       const frontendChild = spawn('npm', ['run', 'dev', '--', '-p', frontendPort.toString()], {
         cwd: frontendProjectPath,
@@ -253,7 +420,7 @@ export async function POST(request: NextRequest) {
       register(frontendPort, frontendChild)
       frontendPid = frontendChild.pid || null
 
-      console.log(`[DEBUG] ✅ Frontend process spawned with PID: ${frontendPid}`)
+      console.log(`[DEBUG] Frontend process spawned with PID: ${frontendPid}`)
 
       // Capture stdout for logs
       if (frontendChild.stdout) {

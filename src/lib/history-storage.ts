@@ -132,3 +132,48 @@ export function clearAll(): void {
     console.error('Failed to clear storage:', err)
   }
 }
+
+// ===== Terminal-level favorites (Story 1.2) =====
+
+const FAVORITE_TERMINALS_KEY = 'history-favorites-terminals'
+
+/**
+ * Get all favorite terminal IDs
+ */
+export function getFavoriteTerminals(): string[] {
+  try {
+    const stored = localStorage.getItem(FAVORITE_TERMINALS_KEY) || '[]'
+    return JSON.parse(stored) as string[]
+  } catch (err) {
+    console.error('Failed to load favorite terminals:', err)
+    return []
+  }
+}
+
+/**
+ * Add terminal to favorites
+ */
+export function addFavoriteTerminal(terminalId: string): void {
+  try {
+    const favorites = getFavoriteTerminals()
+    if (!favorites.includes(terminalId)) {
+      favorites.push(terminalId)
+      localStorage.setItem(FAVORITE_TERMINALS_KEY, JSON.stringify(favorites))
+    }
+  } catch (err) {
+    console.error('Failed to save favorite terminal:', err)
+  }
+}
+
+/**
+ * Remove terminal from favorites
+ */
+export function removeFavoriteTerminal(terminalId: string): void {
+  try {
+    const favorites = getFavoriteTerminals()
+    const filtered = favorites.filter((id) => id !== terminalId)
+    localStorage.setItem(FAVORITE_TERMINALS_KEY, JSON.stringify(filtered))
+  } catch (err) {
+    console.error('Failed to remove favorite terminal:', err)
+  }
+}

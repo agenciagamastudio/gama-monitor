@@ -118,8 +118,28 @@ export function Sidebar({
         </div>
       </div>
 
-      {/* Add Project Button */}
-      <div className="p-4 border-t border-gama-surface-accent">
+      {/* Navigation & Add Project Buttons */}
+      <div className="p-4 space-y-2 border-t border-gama-surface-accent">
+        <a
+          href="/historic"
+          className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-gama-surface-accent text-gama-text font-semibold rounded-lg hover:bg-gama-primary hover:text-gama-dark transition-all"
+          title={isOpen ? undefined : 'Histórico'}
+        >
+          <span className="text-xl flex-shrink-0">📚</span>
+          <span className={`overflow-hidden transition-all duration-200 ${isOpen ? 'opacity-100' : 'opacity-0 w-0'}`}>
+            Histórico
+          </span>
+        </a>
+        <a
+          href="/terminal"
+          className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-gama-surface-accent text-gama-text font-semibold rounded-lg hover:bg-gama-primary hover:text-gama-dark transition-all"
+          title={isOpen ? undefined : 'Terminal'}
+        >
+          <span className="text-xl flex-shrink-0">⌨️</span>
+          <span className={`overflow-hidden transition-all duration-200 ${isOpen ? 'opacity-100' : 'opacity-0 w-0'}`}>
+            Terminal
+          </span>
+        </a>
         <button
           onClick={onAddProject}
           className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-gama-primary text-gama-dark font-black rounded-lg hover:bg-gama-primary/90 transition-all"

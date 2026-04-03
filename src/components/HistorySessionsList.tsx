@@ -1,35 +1,59 @@
 'use client'
 
-import { useState } from 'react'
-import { HistorySession } from '@/types/history'
+import { useState, useEffect } from 'react'
+import { GroupedSession } from '@/lib/history-parser'
+import { TerminalCard } from './TerminalCard'
+import { getFavoriteTerminals, addFavoriteTerminal, removeFavoriteTerminal } from '@/lib/history-storage'
 
-interface HistorySessionsListProps {
-  sessions: HistorySession[]
-  selectedSession: HistorySession | null
-  onSelectSession: (session: HistorySession) => void
+interface HistoryTerminalsListProps {
+  terminals: GroupedSession[]
 }
 
-export function HistorySessionsList({ sessions, selectedSession, onSelectSession }: HistorySessionsListProps) {
+export function HistorySessionsList({ terminals }: HistoryTerminalsListProps) {
   const [search, setSearch] = useState('')
   const [timeFilter, setTimeFilter] = useState<'24h' | '7d' | '30d' | 'all'>('all')
+  const [favorites, setFavorites] = useState<Set<string>>(new Set())
+
+  // Load favorites from localStorage
+  useEffect(() => {
+    const favTerminals = getFavoriteTerminals()
+    setFavorites(new Set(favTerminals))
+  }, [])
 
   const now = Date.now()
   const day = 24 * 60 * 60 * 1000
 
-  const filtered = sessions.filter((s) => {
-    // Time filter
-    const age = now - s.timestamp.getTime()
-    const withinTime =
-      timeFilter === 'all' ||
-      (timeFilter === '24h' && age < day) ||
-      (timeFilter === '7d' && age < 7 * day) ||
-      (timeFilter === '30d' && age < 30 * day)
+  const filtered = terminals.filter((terminal) => {
+    // Time filter: check if any event in terminal is within time range
+    const hasRecentEvent = terminal.events.some((e) => {
+      const age = now - e.timestamp
+      return (
+        timeFilter === 'all' ||
+        (timeFilter === '24h' && age < day) ||
+        (timeFilter === '7d' && age < 7 * day) ||
+        (timeFilter === '30d' && age < 30 * day)
+      )
+    })
 
-    // Search filter
-    const matchSearch = search === '' || s.content.toLowerCase().includes(search.toLowerCase())
+    // Search filter: search across all messages in terminal
+    const matchSearch =
+      search === '' ||
+      terminal.events.some((e) => e.display.toLowerCase().includes(search.toLowerCase()))
 
-    return withinTime && matchSearch
+    return hasRecentEvent && matchSearch
   })
+
+  const toggleFavorite = (terminalId: string) => {
+    const newFavorites = new Set(favorites)
+    if (newFavorites.has(terminalId)) {
+      newFavorites.delete(terminalId)
+      removeFavoriteTerminal(terminalId)
+    } else {
+      newFavorites.add(terminalId)
+      addFavoriteTerminal(terminalId)
+    }
+    setFavorites(newFavorites)
+  }
 
   return (
     <div className="flex flex-col h-full">
@@ -37,7 +61,7 @@ export function HistorySessionsList({ sessions, selectedSession, onSelectSession
       <div className="p-3 bg-gama-surface border-b border-gama-surface-accent space-y-2">
         <input
           type="text"
-          placeholder="🔍 Buscar..."
+          placeholder="🔍 Buscar terminals..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           className="w-full px-2 py-1 text-sm bg-gama-surface-accent text-gama-text rounded border border-white/10 hover:border-gama-primary/50 focus:border-gama-primary focus:outline-none transition-colors"
@@ -62,38 +86,30 @@ export function HistorySessionsList({ sessions, selectedSession, onSelectSession
         </div>
       </div>
 
-      {/* Sessions List */}
-      <div className="flex-1 overflow-y-auto">
+      {/* Terminals List */}
+      <div className="flex-1 overflow-y-auto space-y-2 p-2">
         {filtered.length === 0 ? (
-          <div className="flex items-center justify-center h-full text-gama-text-secondary text-sm text-center p-4">
+          <div className="flex items-center justify-center h-full text-gama-text-secondary text-sm text-center">
             <div>
-              <div className="text-3xl mb-2">🔍</div>
-              <p>Nenhuma conversa</p>
+              <div className="text-3xl mb-2">📱</div>
+              <p>Nenhum terminal encontrado</p>
             </div>
           </div>
         ) : (
-          <div className="divide-y divide-white/5">
-            {filtered.map((session) => (
-              <button
-                key={session.id}
-                onClick={() => onSelectSession(session)}
-                className={`w-full text-left p-3 hover:bg-gama-surface-accent transition-colors ${
-                  selectedSession?.id === session.id ? 'bg-gama-primary/10 border-l-2 border-gama-primary' : ''
-                }`}
-              >
-                <div className="text-xs text-gama-text-secondary mb-1">
-                  {session.timestamp.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
-                </div>
-                <div className="flex items-center gap-1 mb-1 text-xs">
-                  {session.agent && <span className="px-1.5 py-0.5 bg-gama-primary/20 text-gama-primary rounded text-xs">{session.agent}</span>}
-                  {session.project && <span className="px-1.5 py-0.5 bg-blue-500/20 text-blue-300 rounded text-xs">{session.project}</span>}
-                </div>
-                <p className="text-xs text-gama-text line-clamp-2">{session.preview}</p>
-              </button>
-            ))}
-          </div>
+          filtered.map((terminal, idx) => (
+            <TerminalCard
+              key={`${terminal.firstTime}-${idx}`}
+              terminal={terminal}
+              terminalId={`${terminal.firstTime}-${idx}`}
+              isFavorite={favorites.has(`${terminal.firstTime}-${idx}`)}
+              onToggleFavorite={toggleFavorite}
+            />
+          ))
         )}
       </div>
     </div>
   )
 }
+
+// Keep old HistorySessionsList export for backward compat
+export { HistorySessionsList as HistoryTerminalsList }

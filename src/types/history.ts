@@ -31,6 +31,8 @@ export interface HistoryApiResponse {
   byDate: Record<string, HistorySession[]>
   byProject: Record<string, HistorySession[]>
   byAgent: Record<string, HistorySession[]>
+  bySession?: Record<string, any>
+  bySessionArray?: any[]
   stats: HistoryStats
   error?: string
 }

@@ -6,12 +6,14 @@ import { HistoryCalendar } from './HistoryCalendar'
 import { HistoryExplorer } from './HistoryExplorer'
 import { ChatDetailView } from './ChatDetailView'
 import { HistoryApiResponse, HistorySession } from '@/types/history'
+import { GroupedSession } from '@/lib/history-parser'
 
 type TabType = 'list' | 'calendar' | 'explorer' | 'favorites'
 
 export function HistoryTabs() {
   const [activeTab, setActiveTab] = useState<TabType>('list')
   const [data, setData] = useState<HistoryApiResponse | null>(null)
+  const [terminals, setTerminals] = useState<GroupedSession[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [selectedSession, setSelectedSession] = useState<HistorySession | null>(null)
@@ -22,21 +24,21 @@ export function HistoryTabs() {
       try {
         setLoading(true)
         const response = await fetch('/api/history')
-        const json = (await response.json()) as HistoryApiResponse
+        const json = (await response.json()) as any
 
         if (!response.ok) {
           throw new Error(json.error || 'Failed to load history')
         }
 
         // Convert date strings to Date objects
-        const sessions = json.sessions.map((s) => ({
+        const sessions = json.sessions.map((s: any) => ({
           ...s,
           timestamp: new Date(s.timestamp),
         }))
 
         const byDate: Record<string, typeof sessions> = {}
         for (const [key, val] of Object.entries(json.byDate)) {
-          byDate[key] = val.map((s) => ({
+          byDate[key] = (val as any[]).map((s) => ({
             ...s,
             timestamp: new Date(s.timestamp),
           }))
@@ -46,11 +48,15 @@ export function HistoryTabs() {
           ...json,
           sessions,
           byDate,
-        })
+        } as HistoryApiResponse)
         setError(null)
 
+        // Set grouped terminals from Story 1.1
+        const terminalList: GroupedSession[] = json.bySessionArray || []
+        setTerminals(terminalList)
+
         // Load favorites
-        const fav = JSON.parse(localStorage.getItem('history-favorites') || '[]')
+        const fav = JSON.parse(localStorage.getItem('history-favorites-terminals') || '[]')
         setFavorites(new Set(fav))
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Unknown error')
@@ -92,14 +98,14 @@ export function HistoryTabs() {
     )
   }
 
-  // Filter sessions for active tab
-  let filteredSessions = data.sessions
+  // Filter terminals for active tab (now showing terminals, not individual sessions)
+  let filteredTerminals = terminals
   if (activeTab === 'favorites') {
-    filteredSessions = data.sessions.filter((s) => favorites.has(s.id))
+    filteredTerminals = terminals.filter((t, idx) => favorites.has(`${t.firstTime}-${idx}`))
   }
 
   const tabs: Array<{ id: TabType; label: string; emoji: string }> = [
-    { id: 'list', label: 'Lista', emoji: '📋' },
+    { id: 'list', label: 'Terminais', emoji: '📱' },
     { id: 'calendar', label: 'Calendário', emoji: '📅' },
     { id: 'explorer', label: 'Explorador', emoji: '📁' },
     { id: 'favorites', label: 'Favoritos', emoji: '⭐' },
@@ -107,7 +113,7 @@ export function HistoryTabs() {
 
   return (
     <div className="flex gap-0 h-full">
-      {/* Left Panel — List */}
+      {/* Left Panel — Terminals List */}
       <div className="hidden lg:flex lg:flex-col lg:w-96 lg:flex-shrink-0 lg:border-r lg:border-white/10 bg-gama-dark">
         {/* Tabs Header */}
         <div className="bg-gama-surface border-b border-gama-surface-accent p-3 flex flex-wrap gap-2">
@@ -131,23 +137,20 @@ export function HistoryTabs() {
 
         {/* Stats */}
         <div className="px-3 py-2 text-xs text-gama-text-secondary border-b border-gama-surface-accent flex gap-3">
-          <span>📊 {data.stats.total}</span>
-          {data.stats.dayWithMostSessions && <span>🔥 {data.stats.dayWithMostSessions.count}</span>}
+          <span>📱 {filteredTerminals.length} terminal{filteredTerminals.length !== 1 ? 's' : ''}</span>
+          <span>💬 {data.stats.total} mensagens</span>
         </div>
 
         {/* Tab Content */}
         <div className="flex-1 overflow-hidden">
-          {activeTab === 'list' && (
-            <HistorySessionsList sessions={filteredSessions} onSelectSession={setSelectedSession} selectedSession={selectedSession} />
+          {(activeTab === 'list' || activeTab === 'favorites') && (
+            <HistorySessionsList terminals={filteredTerminals} />
           )}
           {activeTab === 'calendar' && (
             <HistoryCalendar byDate={data.byDate} onSelectSession={setSelectedSession} />
           )}
           {activeTab === 'explorer' && (
             <HistoryExplorer sessions={data.sessions} onSelectSession={setSelectedSession} selectedSession={selectedSession} />
-          )}
-          {activeTab === 'favorites' && (
-            <HistorySessionsList sessions={filteredSessions} onSelectSession={setSelectedSession} selectedSession={selectedSession} />
           )}
         </div>
       </div>

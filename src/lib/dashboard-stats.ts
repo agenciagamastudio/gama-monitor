@@ -1,149 +1,255 @@
-import { HistorySession } from '@/types/history'
+import { GroupedSession } from './history-parser'
 
 export type PeriodType = '7d' | '30d' | '90d' | 'all'
 
 /**
- * Filter sessions by period
+ * Terminal activity - per-terminal metrics
  */
-export function filterByPeriod(sessions: HistorySession[], period: PeriodType): HistorySession[] {
-  if (period === 'all') return sessions
-
-  const now = Date.now()
-  const daysAgo = period === '7d' ? 7 : period === '30d' ? 30 : 90
-
-  const cutoff = now - daysAgo * 24 * 60 * 60 * 1000
-
-  return sessions.filter((s) => s.timestamp.getTime() >= cutoff)
+export interface TerminalActivity {
+  sessionId: string
+  agents: Set<string>
+  projects: Set<string>
+  messageCount: number
+  firstTime: number
+  lastTime: number
+  dayOfActivity: string[] // ["2026-04-03", "2026-04-04"]
 }
 
 /**
- * Group sessions by week
+ * Convert GroupedSession to TerminalActivity
  */
-export function groupByWeek(sessions: HistorySession[]): Array<{ week: string; count: number; avgWords: number }> {
-  const byWeek: Record<string, HistorySession[]> = {}
+function convertToTerminalActivity(grouped: Record<string, GroupedSession>): TerminalActivity[] {
+  return Object.entries(grouped).map(([sessionId, session]) => {
+    const agents = new Set<string>()
+    const projects = new Set<string>()
 
-  sessions.forEach((session) => {
-    const date = new Date(session.timestamp)
-    // Get Monday of that week
-    const day = date.getDay()
-    const diff = date.getDate() - day + (day === 0 ? -6 : 1)
-    const monday = new Date(date.setDate(diff))
-    const weekKey = monday.toISOString().split('T')[0]
+    session.events.forEach((event) => {
+      if (event.sessionId) agents.add(event.sessionId)
+      if (event.project) projects.add(event.project)
+    })
 
-    if (!byWeek[weekKey]) {
-      byWeek[weekKey] = []
+    // Build day of activity
+    const daysSet = new Set<string>()
+    session.events.forEach((event) => {
+      const date = new Date(event.timestamp)
+      daysSet.add(date.toISOString().split('T')[0])
+    })
+
+    return {
+      sessionId,
+      agents,
+      projects,
+      messageCount: session.count,
+      firstTime: session.firstTime,
+      lastTime: session.lastTime,
+      dayOfActivity: Array.from(daysSet),
     }
-    byWeek[weekKey].push(session)
+  })
+}
+
+/**
+ * Filter terminals by period (NOW COUNTS TERMINALS, NOT MESSAGES)
+ */
+export function filterByPeriod(
+  grouped: Record<string, GroupedSession> | GroupedSession[],
+  period: PeriodType
+): TerminalActivity[] {
+  // Convert input to grouped format if needed
+  let groupedSessions: Record<string, GroupedSession>
+
+  if (Array.isArray(grouped)) {
+    groupedSessions = {}
+    grouped.forEach((g, idx) => {
+      groupedSessions[g.firstTime + '-' + idx] = g
+    })
+  } else {
+    groupedSessions = grouped
+  }
+
+  const terminals = convertToTerminalActivity(groupedSessions)
+
+  if (period === 'all') return terminals
+
+  const now = Date.now()
+  const daysAgo = period === '7d' ? 7 : period === '30d' ? 30 : 90
+  const cutoff = now - daysAgo * 24 * 60 * 60 * 1000
+
+  // Filter terminals that had activity in the period
+  return terminals.filter((t) => t.lastTime >= cutoff)
+}
+
+/**
+ * Group terminals by week (NOW COUNTS UNIQUE TERMINALS PER WEEK)
+ */
+export function groupByWeek(
+  terminals: TerminalActivity[]
+): Array<{ week: string; count: number; avgWords: number }> {
+  const byWeek: Record<string, Set<string>> = {}
+  const wordsByWeek: Record<string, number[]> = {}
+
+  terminals.forEach((terminal) => {
+    terminal.dayOfActivity.forEach((day) => {
+      const date = new Date(day)
+      // Get Monday of that week
+      const dayOfWeek = date.getDay()
+      const diff = date.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1)
+      const monday = new Date(date.setDate(diff))
+      const weekKey = monday.toISOString().split('T')[0]
+
+      if (!byWeek[weekKey]) {
+        byWeek[weekKey] = new Set()
+        wordsByWeek[weekKey] = []
+      }
+      byWeek[weekKey].add(terminal.sessionId)
+
+      // Track word counts for average calculation
+      if (!wordsByWeek[weekKey].includes(terminal.messageCount)) {
+        wordsByWeek[weekKey].push(terminal.messageCount)
+      }
+    })
   })
 
   return Object.entries(byWeek)
-    .map(([week, sessionsInWeek]) => ({
+    .map(([week, terminalIds]) => ({
       week,
-      count: sessionsInWeek.length,
-      avgWords: Math.round(sessionsInWeek.reduce((sum, s) => sum + s.wordCount, 0) / sessionsInWeek.length),
+      count: terminalIds.size, // COUNT OF UNIQUE TERMINALS
+      avgWords: Math.round(
+        wordsByWeek[week].reduce((a, b) => a + b, 0) / Math.max(wordsByWeek[week].length, 1)
+      ),
     }))
     .sort((a, b) => a.week.localeCompare(b.week))
 }
 
 /**
- * Get top agents
+ * Get top agents (NOW COUNTS UNIQUE TERMINALS THAT MENTION AGENT)
  */
 export function topAgents(
-  byAgent: Record<string, HistorySession[]>,
+  terminals: TerminalActivity[],
   n: number = 5
 ): Array<{ name: string; count: number; pct: number }> {
-  const total = Object.values(byAgent).reduce((sum, arr) => sum + arr.length, 0)
+  const agentTerminals: Record<string, Set<string>> = {}
 
-  return Object.entries(byAgent)
-    .map(([name, sessions]) => ({
+  // Count unique terminals per agent
+  terminals.forEach((terminal) => {
+    terminal.agents.forEach((agent) => {
+      if (!agentTerminals[agent]) {
+        agentTerminals[agent] = new Set()
+      }
+      agentTerminals[agent].add(terminal.sessionId)
+    })
+  })
+
+  const total = terminals.length || 1
+
+  return Object.entries(agentTerminals)
+    .map(([name, terminalIds]) => ({
       name,
-      count: sessions.length,
-      pct: Math.round((sessions.length / total) * 100),
+      count: terminalIds.size,
+      pct: Math.round((terminalIds.size / total) * 100),
     }))
     .sort((a, b) => b.count - a.count)
     .slice(0, n)
 }
 
 /**
- * Get top projects
+ * Get top projects (NOW COUNTS UNIQUE TERMINALS THAT MENTION PROJECT)
  */
 export function topProjects(
-  byProject: Record<string, HistorySession[]>,
+  terminals: TerminalActivity[],
   n: number = 5
 ): Array<{ name: string; count: number; pct: number }> {
-  const total = Object.values(byProject).reduce((sum, arr) => sum + arr.length, 0)
+  const projectTerminals: Record<string, Set<string>> = {}
 
-  return Object.entries(byProject)
-    .map(([name, sessions]) => ({
+  // Count unique terminals per project
+  terminals.forEach((terminal) => {
+    terminal.projects.forEach((project) => {
+      if (!projectTerminals[project]) {
+        projectTerminals[project] = new Set()
+      }
+      projectTerminals[project].add(terminal.sessionId)
+    })
+  })
+
+  const total = terminals.length || 1
+
+  return Object.entries(projectTerminals)
+    .map(([name, terminalIds]) => ({
       name,
-      count: sessions.length,
-      pct: Math.round((sessions.length / total) * 100),
+      count: terminalIds.size,
+      pct: Math.round((terminalIds.size / total) * 100),
     }))
     .sort((a, b) => b.count - a.count)
     .slice(0, n)
 }
 
 /**
- * Calculate average word count
+ * Calculate average word count from terminals
  */
-export function calcAvgWordCount(sessions: HistorySession[]): number {
-  if (sessions.length === 0) return 0
-  const total = sessions.reduce((sum, s) => sum + s.wordCount, 0)
-  return Math.round(total / sessions.length)
+export function calcAvgWordCount(terminals: TerminalActivity[]): number {
+  if (terminals.length === 0) return 0
+  const total = terminals.reduce((sum, t) => sum + t.messageCount, 0)
+  return Math.round(total / terminals.length)
 }
 
 /**
  * Get top agent name
  */
-export function calcTopAgent(byAgent: Record<string, HistorySession[]>): string {
-  const top = topAgents(byAgent, 1)
+export function calcTopAgent(terminals: TerminalActivity[]): string {
+  const top = topAgents(terminals, 1)
   return top.length > 0 ? top[0].name : 'N/A'
 }
 
 /**
  * Count active weeks
  */
-export function calcActiveWeeks(sessions: HistorySession[]): number {
-  const weeks = new Set(
-    sessions.map((s) => {
-      const date = new Date(s.timestamp)
-      const day = date.getDay()
-      const diff = date.getDate() - day + (day === 0 ? -6 : 1)
+export function calcActiveWeeks(terminals: TerminalActivity[]): number {
+  const weeks = new Set<string>()
+  terminals.forEach((terminal) => {
+    terminal.dayOfActivity.forEach((day) => {
+      const date = new Date(day)
+      const dayOfWeek = date.getDay()
+      const diff = date.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1)
       const monday = new Date(date.setDate(diff))
-      return monday.toISOString().split('T')[0]
+      weeks.add(monday.toISOString().split('T')[0])
     })
-  )
+  })
   return weeks.size
 }
 
 /**
- * Build heatmap data (12 weeks)
+ * Build heatmap data (NOW COUNTS UNIQUE TERMINALS PER DAY)
  */
 export function buildHeatmapData(
-  byDate: Record<string, HistorySession[]>
+  terminals: TerminalActivity[]
 ): Array<{ date: string; count: number; intensity: 0 | 1 | 2 | 3 | 4 }> {
-  const allDates = Object.entries(byDate).map(([date, sessions]) => ({
+  const byDate: Record<string, Set<string>> = {}
+
+  // Count unique terminals per day
+  terminals.forEach((terminal) => {
+    terminal.dayOfActivity.forEach((day) => {
+      if (!byDate[day]) {
+        byDate[day] = new Set()
+      }
+      byDate[day].add(terminal.sessionId)
+    })
+  })
+
+  const allDates = Object.entries(byDate).map(([date, terminalIds]) => ({
     date,
-    count: sessions.length,
+    count: terminalIds.size,
   }))
 
   if (allDates.length === 0) return []
 
-  const maxCount = Math.max(...allDates.map((d) => d.count), 1)
-
+  // Intensity scale: 0=0, 1=1, 2=2, 3=3, 4=4+
   return allDates.map((d) => {
-    let intensity: 0 | 1 | 2 | 3 | 4 = 0
-    if (d.count > 0) {
-      const ratio = d.count / maxCount
-      intensity =
-        ratio < 0.25 ? (1 as const) : ratio < 0.5 ? (2 as const) : ratio < 0.75 ? (3 as const) : (4 as const)
-    }
+    let intensity: 0 | 1 | 2 | 3 | 4 = (Math.min(d.count, 4) as 0 | 1 | 2 | 3 | 4)
     return { ...d, intensity }
   })
 }
 
 /**
- * Generate smart insights
+ * Generate smart insights (NOW COUNTS TERMINALS)
  */
 export interface Insight {
   emoji: string
@@ -151,70 +257,71 @@ export interface Insight {
 }
 
 export function generateInsights(
-  sessions: HistorySession[],
-  byAgent: Record<string, HistorySession[]>,
+  terminals: TerminalActivity[],
   period: PeriodType,
-  allSessions: HistorySession[]
+  allTerminals: TerminalActivity[]
 ): Insight[] {
   const insights: Insight[] = []
 
-  if (sessions.length === 0) {
+  if (terminals.length === 0) {
     return [{ emoji: '📊', text: 'Sem dados para este período' }]
   }
 
-  // Total hours (estimate: avg 5 min per session)
-  const hours = Math.round((sessions.length * 5) / 60)
-  insights.push({ emoji: '⚡', text: `Você trabalhou ${hours}h neste período` })
+  // Total terminals
+  const terminalCount = terminals.length
+  insights.push({ emoji: '📱', text: `${terminalCount} terminal${terminalCount !== 1 ? 's' : ''} ativo${terminalCount !== 1 ? 's' : ''} neste período` })
 
   // Compare with previous period
   const daysInPeriod = period === '7d' ? 7 : period === '30d' ? 30 : period === '90d' ? 90 : 999
-  const previousSessions = filterByPeriod(
-    allSessions,
-    period === 'all' ? 'all' : ('7d' as PeriodType)
-  ).filter((s) => {
-    const diff = (Date.now() - s.timestamp.getTime()) / (1000 * 60 * 60 * 24)
-    return diff >= daysInPeriod && diff < daysInPeriod * 2
-  })
+  const now = Date.now()
+  const cutoff = now - daysInPeriod * 24 * 60 * 60 * 1000
+  const previousTerminals = allTerminals.filter(
+    (t) => t.lastTime < cutoff && t.lastTime >= cutoff - daysInPeriod * 24 * 60 * 60 * 1000
+  )
 
-  if (previousSessions.length > 0) {
-    const growth = Math.round(((sessions.length - previousSessions.length) / previousSessions.length) * 100)
+  if (previousTerminals.length > 0) {
+    const growth = Math.round(((terminalCount - previousTerminals.length) / previousTerminals.length) * 100)
     if (growth >= 10) {
-      insights.push({ emoji: '📈', text: `+${growth}% sessões vs período anterior` })
+      insights.push({ emoji: '📈', text: `+${growth}% terminais vs período anterior` })
     } else if (growth <= -10) {
-      insights.push({ emoji: '📉', text: `${growth}% sessões vs período anterior` })
+      insights.push({ emoji: '📉', text: `${growth}% terminais vs período anterior` })
     }
   }
 
   // Top agent
-  const topAgent = calcTopAgent(byAgent)
+  const topAgent = calcTopAgent(terminals)
   if (topAgent !== 'N/A') {
-    const agentSessions = byAgent[topAgent]?.length || 0
-    const pct = Math.round((agentSessions / sessions.length) * 100)
-    insights.push({ emoji: '🤖', text: `${topAgent} liderou com ${pct}% das sessões` })
+    const agentCount = topAgents(terminals, 1)[0]?.count || 0
+    const pct = Math.round((agentCount / terminalCount) * 100)
+    insights.push({ emoji: '🤖', text: `${topAgent} utilizado em ${pct}% dos terminais` })
   }
 
   // Busiest day
-  const byDate: Record<string, HistorySession[]> = {}
-  sessions.forEach((s) => {
-    const date = s.timestamp.toISOString().split('T')[0]
-    if (!byDate[date]) byDate[date] = []
-    byDate[date].push(s)
+  const byDate: Record<string, Set<string>> = {}
+  terminals.forEach((t) => {
+    t.dayOfActivity.forEach((day) => {
+      if (!byDate[day]) byDate[day] = new Set()
+      byDate[day].add(t.sessionId)
+    })
   })
 
-  const busiestDay = Object.entries(byDate).sort((a, b) => b[1].length - a[1].length)[0]
+  const busiestDay = Object.entries(byDate).sort((a, b) => b[1].size - a[1].size)[0]
   if (busiestDay) {
     const dayName = new Date(busiestDay[0]).toLocaleDateString('pt-BR', { weekday: 'long' })
-    insights.push({ emoji: '🔥', text: `Pico em ${dayName} (${busiestDay[1].length} sessões)` })
+    insights.push({ emoji: '🔥', text: `Pico em ${dayName} (${busiestDay[1].size} terminal${busiestDay[1].size !== 1 ? 's' : ''})` })
   }
 
   // Avg words
-  const avgWords = calcAvgWordCount(sessions)
-  insights.push({ emoji: '📝', text: `Média de ${avgWords} palavras por conversa` })
+  const avgWords = calcAvgWordCount(terminals)
+  insights.push({ emoji: '📝', text: `Média de ${avgWords} palavras por terminal` })
 
   // Unique projects
-  const projects = new Set(sessions.map((s) => s.project).filter(Boolean))
-  if (projects.size > 0) {
-    insights.push({ emoji: '📁', text: `Trabalhado em ${projects.size} projeto${projects.size > 1 ? 's' : ''}` })
+  const projectSet = new Set<string>()
+  terminals.forEach((t) => {
+    t.projects.forEach((p) => projectSet.add(p))
+  })
+  if (projectSet.size > 0) {
+    insights.push({ emoji: '📁', text: `Trabalhado em ${projectSet.size} projeto${projectSet.size > 1 ? 's' : ''}` })
   }
 
   return insights.slice(0, 6) // Top 6 insights

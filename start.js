@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 
 /**
- * Auto-port detection for GAMA Monitor
+ * Auto-port detection for GAMA Monitor + ttyd Terminal
  * Tenta porta 3015, depois 3016, 3017, 3018 se estiver ocupada
+ * ttyd sempre usa porta 3020 (não detecta, fallback silent)
  */
 
 const { execSync } = require('child_process');
@@ -39,7 +40,7 @@ function isPortFree(port) {
  */
 async function findFreePort(startPort = 3015) {
   let port = startPort;
-  const maxPort = startPort + 10; // Tenta até 10 portas
+  const maxPort = startPort + 10;
 
   while (port < maxPort) {
     const free = await isPortFree(port);
@@ -63,13 +64,19 @@ async function main() {
     const port = await findFreePort(3015);
 
     console.log(`✅ Porta ${port} está disponível\n`);
-    console.log(
-      `🚀 Iniciando GAMA Monitor na porta ${port}...\n`
-    );
 
-    // Executa next dev com a porta detectada
-    // Mantém stdio herdado para ver output do Next.js
-    execSync(`npx next dev -p ${port}`, {
+    console.log('🚀 Iniciando GAMA Monitor na porta ' + port + '...\n');
+    console.log(`📡 Acessível em:`);
+    console.log(`   localhost: http://localhost:${port}`);
+    console.log(`   rede local: http://192.168.X.X:${port}`);
+    console.log(`   terminal:   http://localhost:${port}/terminal`);
+    console.log(`   externo:    npm run tunnel`);
+    console.log(`\n⌨️  Para usar o Terminal:`);
+    console.log(`   Em outro terminal, rode: npm run terminal\n`);
+
+    // Sobe Next.js (bloqueia o processo)
+    // -H 0.0.0.0 permite acesso da rede local
+    execSync(`npx next dev -H 0.0.0.0 -p ${port}`, {
       stdio: 'inherit',
       cwd: __dirname,
     });

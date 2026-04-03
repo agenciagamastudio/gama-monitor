@@ -115,17 +115,19 @@ export default function DashboardPage() {
     )
   }
 
-  // Filter by period
-  const filtered = filterByPeriod(data.sessions, period)
+  // Filter by period (using terminal-grouped data from Story 1.1)
+  const bySessionObject = data.bySession || {}
+  const allTerminals = data.bySessionArray || []
+  const filtered = filterByPeriod(bySessionObject, period)
 
-  // Compute stats
+  // Compute stats (all now count terminals, not messages)
   const avgWords = calcAvgWordCount(filtered)
-  const topAgentName = calcTopAgent(data.byAgent)
+  const topAgentName = calcTopAgent(filtered)
   const trends = groupByWeek(filtered)
-  const agents = topAgents(data.byAgent, 5)
-  const projects = topProjects(data.byProject, 5)
-  const heatmapData = buildHeatmapData(data.byDate)
-  const insights = generateInsights(filtered, data.byAgent, period, data.sessions)
+  const agents = topAgents(filtered, 5)
+  const projects = topProjects(filtered, 5)
+  const heatmapData = buildHeatmapData(filtered)
+  const insights = generateInsights(filtered, period, allTerminals)
 
   const overviewCards = [
     { label: 'Total', value: data.stats.total, emoji: '💬', color: 'bg-gama-surface-accent' },
